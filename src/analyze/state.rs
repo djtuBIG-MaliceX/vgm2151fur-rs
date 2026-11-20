@@ -29,7 +29,9 @@ const _ONSET_MERGE_SAMPLES: i64 = 100;
 const OPN_BASE_INS_CAP: usize = 200;
 const OPN_TL_FOLD: i64 = 512;
 const OPN_PATCH_SETTLE: i64 = 512;
-const INS_TARGET: i32 = 240;
+/// `analyze.py:3614`. The tone binder also exports it from `tone.rs`; the
+/// two must agree or the merge tolerance flips a song too early.
+const INS_TARGET: i32 = 250;
 const INS_HARD_LIMIT: i32 = 256;
 const YM2610_MAP_SLOTS: i32 = 120;
 const NES_PCM_MAP_SLOTS: i32 = 120;
@@ -92,8 +94,10 @@ const YM2608_SSG_DIVIDER: i32 = 32;
 const GB_PITCH_DIVIDER: i32 = 16384;
 const VSU_PITCH_DIVIDER: i32 = 32;
 const NES_CPU_DIVIDER: i32 = 16;
-const FDS_FREQ_DIV: i32 = 1;
-const FDS_MAX_FREQ: i32 = 0xFFF;
+// fds.py:17-18: the divider is the register range, and the table tops out
+// at the 16-bit register value.
+const FDS_FREQ_DIV: i32 = 262_144;
+const FDS_MAX_FREQ: i32 = 0xFFFF;
 const QSOUND_OUT_RATE: u32 = 44_100;
 const QSOUND_FREQ_DIV: i32 = 1;
 const QSOUND_MAX_FREQ: i32 = 0xFFFF;
@@ -1782,13 +1786,18 @@ impl<'a> AnalyzeState<'a> {
         self.run_msm5232();
         self.tone_base += 8 * self.msm5232_ids.len() as i32;
         self.run_es5503();
-        self.run_mikey_x1();
+        // Python emits the SCC and AY families before the NES block: their
+        // ids are part of every later family's channel base, and their notes
+        // come first in the event list.
+        self.run_scc_ay();
         self.run_nes();
         self.run_huc6280();
         self.run_gb();
         self.run_vsu();
         self.run_saa_pokey();
+        self.run_mikey_x1();
         self.run_fds_ws();
+        self.run_qsound_k005289();
         Ok(())
     }
 
@@ -8114,7 +8123,6 @@ impl<'a> AnalyzeState<'a> {
             }
         }
 
-        self.run_qsound_k005289();
     }
 }
 
@@ -8183,10 +8191,8 @@ impl<'a> AnalyzeState<'a> {
     }
 
     fn run_qsound_k005289(&mut self) {
-        // Python emits the SCC and AY families before QSound and the K005289
-        // (their ids feed every later family's channel base and their notes
-        // come first in the event list).
-        self.run_scc_ay();
+        // The SCC/AY block already ran in Python's order (before the NES);
+        // QSound and the K005289 follow every tone family.
         let vgm = self.vgm;
         let (qs_pcm, qs_adpcm, qs_samples, qs_warn) = crate::qsound::collect_qsound(vgm);
         self.warnings.extend(qs_warn);
