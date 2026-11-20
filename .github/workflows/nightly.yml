@@ -186,7 +186,16 @@ jobs:
             target/x86_64-apple-darwin/release/vgm2fur \
             -output vgm2fur
           lipo -info vgm2fur
-          lipo -info vgm2fur | grep -q 'x86_64 arm64'
+          archs=$(lipo -archs vgm2fur)
+          echo "archs: $archs"
+          case " $archs " in
+            *" x86_64 "*) ;;
+            *) echo "missing x86_64 slice"; exit 1 ;;
+          esac
+          case " $archs " in
+            *" arm64 "*) ;;
+            *) echo "missing arm64 slice"; exit 1 ;;
+          esac
           mkdir -p stage
           cp vgm2fur stage/
           cp README.md stage/
