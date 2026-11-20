@@ -1125,7 +1125,7 @@ impl<'a> FurWriter<'a> {
     }
 
     /// Emit every block in the Python writer's order.
-    pub fn run(mut self) -> Vec<u8> {
+    pub fn run(self) -> Vec<u8> {
         let mut hooks = EmitHooks { sweep_hook: None };
         self.run_with(&mut hooks)
     }

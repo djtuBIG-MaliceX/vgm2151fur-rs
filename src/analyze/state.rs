@@ -6,17 +6,16 @@
 //! section, a method per nested function, and `run()` reproducing the
 //! statement order.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use indexmap::IndexMap;
 
-use crate::fm::{carriers_for, opn_tl_op, OpRegs, FMPatch, OPN_OP_TO_MASK, OPN_ORDERED_OPS,
-    OPN_CARRIERS, OPM_OP_TO_MASK};
+use crate::fm::{carriers_for, opn_tl_op, OpRegs, FMPatch, OPN_ORDERED_OPS, OPM_OP_TO_MASK};
 use crate::model::{
     dual_ids, kc_to_furnace_note, kf_to_e5, pcm_pan_fx, transpose_opm_events, vol15,
     FmSystem, NoteEvent, Song, ToneIns,
 };
-use crate::parity::{py_floor_div, py_mod, py_round};
+use crate::parity::py_round;
 use crate::vgm::{ChipWrite, VgmFile, VGM_RATE};
 
 /// Furnace's YM2151 chip-wide effects.
@@ -2491,7 +2490,7 @@ impl<'a> AnalyzeState<'a> {
         let mut ext_tl_floors: BTreeMap<i32, [i32; 4]> = BTreeMap::new();
         let mut ext_key_op: BTreeMap<(i32, usize, i32), (i32, i32)> = BTreeMap::new();
 
-        let mut ext_floor = |ins: i32, oi: i32, tl: i32,
+        let ext_floor = |ins: i32, oi: i32, tl: i32,
                              floors: &mut BTreeMap<i32, [i32; 4]>| {
             let per_op = floors.entry(ins).or_insert([0x7F; 4]);
             if tl < per_op[oi as usize] {
@@ -2894,7 +2893,7 @@ impl<'a> AnalyzeState<'a> {
         let mut lfo_last: BTreeMap<i32, i32> = BTreeMap::new();
         let mut patch_pending: BTreeMap<(i32, usize, i32), (i64, i64)> = BTreeMap::new();
 
-        let mut ext_floor = |ins: i32, oi: i32, tl: i32, floors: &mut BTreeMap<i32, [i32; 4]>| {
+        let ext_floor = |ins: i32, oi: i32, tl: i32, floors: &mut BTreeMap<i32, [i32; 4]>| {
             let per_op = floors.entry(ins).or_insert([0x7F; 4]);
             if tl < per_op[oi as usize] {
                 per_op[oi as usize] = tl;
@@ -4840,7 +4839,7 @@ impl<'a> AnalyzeState<'a> {
             adpcm_at.insert(*cid, adpcm_base + i as i32);
         }
         let ins1 = ins0 + self.oki_samples.len() as i32;
-        let n_adpcm_ch = adpcm_ids.len() as i32;
+        let _n_adpcm_ch = adpcm_ids.len() as i32;
         let n_adpcm_ins = crate::oki::msm6258_ins_count(self.adpcm_samples.len() as i32);
         let mut div_now: BTreeMap<i32, Option<i32>> = BTreeMap::new();
         for (i, smp) in self.adpcm_samples.clone().iter().enumerate() {
@@ -7382,7 +7381,7 @@ impl<'a> AnalyzeState<'a> {
 
     fn run_vsu(&mut self) {
         let vgm = self.vgm;
-        let clock = if vgm.vsu_clock != 0 { vgm.vsu_clock } else { VSU_DEFAULT_CLOCK };
+        let _clock = if vgm.vsu_clock != 0 { vgm.vsu_clock } else { VSU_DEFAULT_CLOCK };
         let (hits, offs, wave_list, mod_list, dynamic, warn) = crate::vsu::collect_vsu(vgm);
         self.warnings.extend(warn);
         if hits.is_empty() && offs.is_empty() {
@@ -7670,7 +7669,7 @@ impl<'a> AnalyzeState<'a> {
         if !self.opts.pcm {
             x1_pcm_hits = Vec::new();
         }
-        let x1_clock = if vgm.x1_010_clock != 0 { vgm.x1_010_clock } else { X1_010_DEFAULT_CLOCK };
+        let _x1_clock = if vgm.x1_010_clock != 0 { vgm.x1_010_clock } else { X1_010_DEFAULT_CLOCK };
         let mut ids: Vec<i32> = x1_wave_hits
             .iter()
             .map(|h| h.chip_id)
@@ -7686,7 +7685,7 @@ impl<'a> AnalyzeState<'a> {
         }
         let mut wave_map: BTreeMap<Vec<u8>, i32> = BTreeMap::new();
         let mut env_map: BTreeMap<Vec<u8>, i32> = BTreeMap::new();
-        let mut bank_wave = |body: Vec<u8>,
+        let bank_wave = |body: Vec<u8>,
                              waves: &mut Vec<Vec<u8>>,
                              map: &mut BTreeMap<Vec<u8>, i32>| -> i32 {
             if let Some(i) = map.get(&body) {
@@ -9195,7 +9194,7 @@ impl<'a> AnalyzeState<'a> {
                         );
                         tone_hilight = true;
                     } else {
-                        let (a, b, c, d) = super::_musical_row(&grid);
+                        let (a, b, _c, d) = super::_musical_row(&grid);
                         let (a, b, c, d) =
                             super::_fit_tone_subdivision(a, b, &self.events, &d);
                         hz = a;
@@ -9251,7 +9250,7 @@ impl<'a> AnalyzeState<'a> {
             };
         }
         let mut pcm_gaps: Vec<i64> = Vec::new();
-        let mut collect_gaps = |by: &mut BTreeMap<(i32, i32), Vec<i64>>, gaps: &mut Vec<i64>| {
+        let collect_gaps = |by: &mut BTreeMap<(i32, i32), Vec<i64>>, gaps: &mut Vec<i64>| {
             for times in by.values_mut() {
                 times.sort();
                 for w in times.windows(2) {
@@ -9628,7 +9627,7 @@ impl<'a> AnalyzeState<'a> {
 
 
 impl<'a> AnalyzeState<'a> {
-    fn bind_tone(&mut self, hz: f64, use_speed: i32, t0: i64) {
+    fn bind_tone(&mut self, hz: f64, use_speed: i32, _t0: i64) {
         let vgm = self.vgm;
         let scc_clock = if vgm.k051649_clock != 0 { vgm.k051649_clock } else { SCC_DEFAULT_CLOCK };
         let ay_clock = if vgm.ay8910_clock != 0 { vgm.ay8910_clock } else { AY_DEFAULT_CLOCK };
@@ -9682,7 +9681,7 @@ impl<'a> AnalyzeState<'a> {
         self.tone_base += (self.nes_pcm_samples.len() as i32 + NES_PCM_MAP_SLOTS - 1) / NES_PCM_MAP_SLOTS;
         let huc_pcm_ins_base = self.tone_base;
         self.tone_base += self.huc_pcm_samples.len() as i32;
-        let ymz_ins_base = self.tone_base;
+        let _ymz_ins_base = self.tone_base;
         self.tone_base += self.ymz_audible.len() as i32;
         let multipcm_ins_base = self.tone_base;
         self.tone_base += self.multipcm_audible.len() as i32;

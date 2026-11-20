@@ -2045,7 +2045,7 @@ pub fn parse_for_test(argv: &[String]) -> Result<ParsedArgs> {
     };
     match parse_args(specs, &tokens) {
         ParseOutcome::Args(parsed) => {
-            let mut out = ParsedArgs {
+            let out = ParsedArgs {
                 no_lfo_loop: parsed.no_lfo_loop,
                 lossy_sample_clustering: parsed.lossy,
                 no_normalize: parsed.no_normalize,

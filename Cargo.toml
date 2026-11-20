@@ -13,15 +13,22 @@ path = "src/lib.rs"
 name = "vgm2fur"
 path = "src/bin/vgm2fur.rs"
 
-# [[bin]]
-# name = "parity_dump"
-# path = "src/bin/parity_dump.rs"
+[[bin]]
+name = "parity_dump"
+path = "src/bin/parity_dump.rs"
 
 [dependencies]
 flate2 = "1"
 indexmap = "2"
 glob = "0.3"
 serde_json = "1"
+
+[profile.release]
+opt-level = 'z'     # Optimize for size
+lto = true          # Enable link-time optimization
+codegen-units = 1   # Reduce number of codegen units to increase optimizations
+panic = 'unwind'    # use 'abort' for immediate termination
+strip = true        # Strip symbols from binary*
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
