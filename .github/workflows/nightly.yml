@@ -26,15 +26,10 @@ jobs:
         include:
           # Native builds: appimagetool then injects the matching runtime.
           # ubuntu-22.04 keeps the glibc floor low for the x86_64 AppImage.
-          # `ubuntu-24.04-arm` is the free arm64 runner for public repos. On a
-          # private repo, swap it for ubuntu-22.04 plus
-          # `rustup target add aarch64-unknown-linux-gnu`,
-          # `apt-get install gcc-aarch64-linux-gnu`, and
-          # CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc;
-          # keep ARCH=aarch64 so appimagetool fetches the arm64 runtime.
+          # `ubuntu-22.04-arm` matches the x86_64 glibc floor.
           - runner: ubuntu-22.04
             arch: x86_64
-          - runner: ubuntu-24.04-arm
+          - runner: ubuntu-22.04-arm
             arch: aarch64
     runs-on: ${{ matrix.runner }}
     steps:
@@ -162,7 +157,10 @@ jobs:
 
   macos:
     name: macOS universal
-    runs-on: macos-14
+    # `macos-14` is retired: the label resolves to a runner configuration the
+    # hosted runners no longer offer. Build on the current Intel image and
+    # cross-compile the arm64 slice, then lipo the pair into one binary.
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
 
