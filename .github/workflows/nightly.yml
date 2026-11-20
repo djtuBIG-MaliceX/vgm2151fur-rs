@@ -196,6 +196,10 @@ jobs:
             *" arm64 "*) ;;
             *) echo "missing arm64 slice"; exit 1 ;;
           esac
+          # Unsigned downloaded binaries are killed by Gatekeeper; an ad-hoc
+          # signature is enough for a CLI tool the user runs explicitly.
+          codesign --force --sign - vgm2fur
+          codesign --verify --verbose vgm2fur
           mkdir -p stage
           cp vgm2fur stage/
           cp README.md stage/
