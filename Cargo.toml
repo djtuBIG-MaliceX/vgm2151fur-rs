@@ -1,8 +1,8 @@
 [package]
-name = "vgm2fur"
+name = "vgm2151fur-rs"
 version = "0.11.0"
 edition = "2024"
-description = "Transcribe YM2151/YM2203/YM2612 + sample-chip VGMs into Furnace .fur modules (Rust port of vgm2151fur 0.11.0)"
+description = "Transcribe every VGM into a Furnace .fur modules (Rust port of vgm2151fur 0.11.0)"
 license = "MIT"
 
 [lib]
@@ -13,9 +13,9 @@ path = "src/lib.rs"
 name = "vgm2fur"
 path = "src/bin/vgm2fur.rs"
 
-[[bin]]
-name = "parity_dump"
-path = "src/bin/parity_dump.rs"
+# [[bin]]
+# name = "parity_dump"
+# path = "src/bin/parity_dump.rs"
 
 [dependencies]
 flate2 = "1"
