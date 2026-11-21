@@ -548,46 +548,6 @@ pub fn _player_chip_volume(vgm: &VgmFile, dev: u8, instances: i64) -> f64 {
     vol as f64 / 256.0
 }
 
-// VGM extra-header linked-device volumes (0x86/0x87/0x88) are the SSG half
-// of the YM2203/YM2608/YM2610. Its default follows the player's 8.8 volume:
-// 0x80 (0.5) for each, after the YM2203's linked half-of-FM rule.
-pub static _LINKED_SSG_DEFAULT: LazyLock<IndexMap<u8, i64>> =
-    LazyLock::new(|| IndexMap::from([(0x06, 0x80), (0x07, 0x80), (0x08, 0x80)]));
-
-/// The player's SSG mix level for a linked YM2203/YM2608/YM2610.
-///
-/// Returns None when the header has no entry, so the module keeps Furnace's
-/// default (128, the same 0.5). Otherwise the value is already an 8.8 level
-/// and maps straight onto the platform's ``ssgVol`` flag (128 = 0.5).
-///
-/// Python defaults: `chip_id=0`, `instances=1`.
-pub fn _linked_ssg_volume(
-    vgm: &VgmFile,
-    chip_type: u8,
-    chip_id: i64,
-    instances: i64,
-) -> Option<i64> {
-    if !_LINKED_SSG_DEFAULT.contains_key(&chip_type) {
-        return None;
-    }
-    let entry = vgm.extra_volumes.get(&(0x80 | chip_type));
-    let (flags, value) = *entry?;
-    if i64::from(flags & 1) != chip_id {
-        return None;
-    }
-    let mut vol = _LINKED_SSG_DEFAULT[&chip_type];
-    if instances > 1 {
-        vol = py_floor_div(vol, instances);
-    }
-    let value = value as i64;
-    if value & 0x8000 != 0 {
-        vol = py_floor_div(vol * (value & 0x7FFF), 0x100);
-    } else {
-        vol = value;
-    }
-    Some(vol.clamp(0, 0x7FFF))
-}
-
 /// Output volume for a .fur chip, calibrated to the reference player.
 pub fn _sample_chip_volume(song: &Song, chip: u8, instances: i64) -> f64 {
     let Some(&dev) = CHIP_DEV.get(&chip) else {

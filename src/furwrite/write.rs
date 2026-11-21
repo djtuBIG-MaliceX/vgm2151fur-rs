@@ -34,7 +34,7 @@ use super::buf::{
     SMP_DEPTH_16BIT, SMP_DEPTH_8BIT, SMP_DEPTH_ADPCM_A,
     SMP_DEPTH_ADPCM_B, SMP_DEPTH_ADPCM_K, SMP_DEPTH_YMZ_ADPCM,
     T6W28_DEFAULT_CLOCK, WS_PCM_RATE_COMPENSATION, ADPCM_B_RATE_COMPENSATION,
-    _linked_ssg_volume, _player_chip_volume, _sample_chip_volume, _version,
+    _player_chip_volume, _sample_chip_volume, _version,
 };
 use super::ins::{
     _pcm_label, _wave_label, _write_empty_adir, _write_flag, _write_ins_ay,
@@ -2992,22 +2992,7 @@ impl<'a> FurWriter<'a> {
                     // Furnace's OPNA clock list has exactly one named entry
                     // beyond the 8 MHz default: 38400*13*16.
                     if fm_clock == 38_400 * 13 * 16 {
-                        let mut flags = vec!["clockSel=1".to_string()];
-                        let ssg_vol = _linked_ssg_volume(
-                            vgm,
-                            0x07,
-                            cid as i64,
-                            self.systems
-                                .iter()
-                                .filter(|s| s.kind == "ym2608")
-                                .count() as i64,
-                        );
-                        if let Some(vol) = ssg_vol {
-                            if vol != 128 {
-                                flags.push(format!("ssgVol={}", vol));
-                            }
-                        }
-                        flag_texts.push(flags.join("\n"));
+                        flag_texts.push("clockSel=1".to_string());
                         continue;
                     }
                     fm_default = 8_000_000;
@@ -3023,27 +3008,10 @@ impl<'a> FurWriter<'a> {
                 if fm_clock != 0 && fm_clock != fm_default {
                     flags.push(format!("customClock={}", fm_clock));
                 }
-                // The linked SSG half has its own volume in the VGM extra
-                // header.
-                let ssg_dev = match kind {
-                    "ym2203" => Some(0x06u8),
-                    "ym2608" => Some(0x07u8),
-                    "ym2610" => Some(0x08u8),
-                    _ => None,
-                };
-                if let Some(dev) = ssg_dev {
-                    let count = self
-                        .systems
-                        .iter()
-                        .filter(|s| s.kind == kind)
-                        .count() as i64;
-                    let ssg_vol = _linked_ssg_volume(vgm, dev, cid as i64, count);
-                    if let Some(vol) = ssg_vol {
-                        if vol != 128 {
-                            flags.push(format!("ssgVol={}", vol));
-                        }
-                    }
-                }
+                // The linked SSG volume in the VGM extra header is ignored.
+                // Furnace's default 128 stays, and Chip Manager lets the user
+                // set it; VGMPlayer's chip-volume units do not match Furnace's
+                // SSG mix calibration.
                 flag_texts.push(flags.join("\n"));
             }
         }

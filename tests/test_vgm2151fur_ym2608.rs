@@ -24,7 +24,7 @@ use vgm2fur::ay8910::ay_note;
 use vgm2fur::diag::pitch_runs;
 use vgm2fur::furio::{chip_channels, iter_blocks, parse_fur, parse_smp2_payload};
 use vgm2fur::furwrite::{
-    _linked_ssg_volume, parse_fur_skeleton, write_fur, WriteOptions, CHIP_YM2608,
+    parse_fur_skeleton, write_fur, WriteOptions, CHIP_YM2608,
     CHIP_YM2608_EXT, INS_ADPCMA, INS_ADPCMB, INS_FM,
 };
 use vgm2fur::furnace::export_vgm;
@@ -771,10 +771,11 @@ mod TestYm2608Analyze {
     }
 
     #[test]
-    fn test_linked_ssg_volume_sets_the_platform_flag() {
+    fn test_linked_ssg_entry_leaves_the_default() {
+        // The VGM extra header's linked SSG volume is ignored. Furnace keeps
+        // its own default (128), and Chip Manager lets the user adjust ssgVol.
         let mut vgm = synthetic(fm_note_default(0), None);
         vgm.extra_volumes.insert(0x87, (0, 0x80A0));
-        assert_eq!(_linked_ssg_volume(&vgm, 0x07, 0, 1), Some(0x50));
         let data = write(&analyze_default(&vgm));
         let mut flags: Vec<String> = Vec::new();
         for blk in iter_blocks(&data).expect("iter_blocks") {
@@ -782,16 +783,7 @@ mod TestYm2608Analyze {
                 flags.push(String::from_utf8_lossy(blk.payload).into_owned());
             }
         }
-        assert!(flags.join("\n").contains("ssgVol=80"));
-    }
-
-    #[test]
-    fn test_linked_ssg_volume_follows_the_ym2203_half_rule() {
-        let mut vgm = synthetic(Vec::new(), None);
-        vgm.extra_volumes.insert(0x86, (0, 0x8100)); // relative 1.0
-        assert_eq!(_linked_ssg_volume(&vgm, 0x06, 0, 1), Some(0x80));
-        vgm.extra_volumes.insert(0x86, (0, 0x60)); // absolute
-        assert_eq!(_linked_ssg_volume(&vgm, 0x06, 0, 1), Some(0x60));
+        assert!(!flags.join("\n").contains("ssgVol="));
     }
 
     #[test]
