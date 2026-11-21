@@ -260,13 +260,13 @@ jobs:
             if ! gh api -X PATCH "repos/${GH_REPO}/git/refs/tags/${TAG}" \
                  -f sha="$SHA" -F force=true >/dev/null 2>&1; then
               gh release delete "$TAG" --cleanup-tag --yes
-              gh release create "$TAG" --title Nightly --prerelease \
+              gh release create "$TAG" --title Nightly \
                 --target "$SHA" --notes-file notes.md
             else
               gh release edit "$TAG" --notes-file notes.md
             fi
           else
-            gh release create "$TAG" --title Nightly --prerelease \
+            gh release create "$TAG" --title Nightly \
               --target "$SHA" --notes-file notes.md
           fi
 
