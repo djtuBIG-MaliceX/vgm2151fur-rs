@@ -51,6 +51,10 @@ pub const GB_REFIT_SAMPLES: i64 = 735;
 pub const GB_ENV_REFIT: i64 = 16;
 /// Two mid-note NRx2 writes mean the driver is doing a software volume ramp.
 pub const GB_SOFT_ENV_WRITES: usize = 2;
+/// Furnace's `soundLen` value for a voice whose length counter stays off.
+/// `DivInstrumentGB::soundLen` defaults to it together with
+/// `soundLenInfinite`; any value >= 64 reads back as this value.
+pub const GB_SOUND_LEN_INFINITE: i32 = 255;
 /// A held pitch jump of at least this many 1/64 semitones (0.75 st) is a
 /// legato note change, not a slide. The pattern gets a note cell there.
 pub const GB_LEGATO_UNITS: i32 = 48;
@@ -210,8 +214,10 @@ pub struct GbHit {
     pub env_vol: i32,
     pub env_dir: i32,
     pub env_len: i32,
-    /// Furnace field (63 = length disabled)
+    /// Furnace field (NRx1 encoding; see `sound_len_inf`)
     pub sound_len: i32,
+    /// The hardware length counter stays off (`soundLenInfinite`).
+    pub sound_len_inf: bool,
     pub soft_env: bool,
     pub env_raw: i32,
     pub off_sample: i64,
@@ -240,7 +246,8 @@ impl Default for GbHit {
             env_vol: 0,
             env_dir: 0,
             env_len: 0,
-            sound_len: 63,
+            sound_len: GB_SOUND_LEN_INFINITE,
+            sound_len_inf: true,
             soft_env: false,
             env_raw: 0,
             off_sample: 0,
@@ -496,15 +503,20 @@ impl GbState {
         (e >> 4) > 0 || ((e & 8) != 0 && (e & 7) != 0)
     }
 
-    fn final_sound_len(&self, voice: usize) -> i32 {
-        // Pulses disable length counting at `soundLen == 63`; the noise
-        // platform tests `soundLen < 64`, so 64 is its "disabled" value.
-        // Without that, every noise note is cut after 64 length ticks even
-        // when the source never enabled the counter.
+    fn final_sound_len(&self, voice: usize) -> (i32, bool) {
+        // Furnace keeps the length counter off through the instrument's
+        // `soundLenInfinite` flag, not through a reserved value: without it
+        // the platform sets NRx4 bit 6 and the voice is cut after the length.
+        // The value itself is NRx1's encoding: pulses/noise store
+        // `63 - length`, the wave voice `255 - NR31` (gb.cpp writes
+        // `soundLen ^ 0xFF` for it).
         if self.length_en[voice] && self.length_val[voice] > 0 {
-            return 63 - self.length_val[voice];
+            return (
+                (if voice == 2 { 255 } else { 63 }) - self.length_val[voice],
+                false,
+            );
         }
-        if voice == 3 { 64 } else { 63 }
+        (GB_SOUND_LEN_INFINITE, true)
     }
 
     fn close(&mut self, voice: usize, t: i64, emit_off: bool) {
@@ -564,15 +576,20 @@ impl GbState {
                 return;
             }
             let index = self.wave_now(t, false);
+            // NR51 both off: the voice is gated, and 08 00 cannot express
+            // that (Furnace forces both on), so start silent and let the
+            // restore write NR32 back (see the NR51 handler).
+            let gated = self.pan[2] == 0;
             self.active[voice] = Some(GbHit {
                 sample_time: t,
                 voice: 2,
                 period: self.period[2],
-                vol: wave_volume(self.wave_vol),
+                vol: if gated { 0 } else { wave_volume(self.wave_vol) },
                 duty: 0,
                 wave: index,
-                sound_len: 63,
-                pan: self.pan[2],
+                sound_len: GB_SOUND_LEN_INFINITE,
+                sound_len_inf: true,
+                pan: if gated { 0xFF } else { self.pan[2] },
                 ..GbHit::default()
             });
             return;
@@ -585,6 +602,7 @@ impl GbState {
             None => self.env[voice] >> 4,
         };
         if voice == 3 {
+            let (sound_len, sound_len_inf) = self.final_sound_len(3);
             self.active[voice] = Some(GbHit {
                 sample_time: t,
                 voice: 3,
@@ -594,12 +612,14 @@ impl GbState {
                 env_vol: start_vol,
                 env_dir: (self.env[3] >> 3) & 1,
                 env_len: self.env[3] & 7,
-                sound_len: self.final_sound_len(3),
+                sound_len,
+                sound_len_inf,
                 pan: self.pan[3],
                 env_raw: self.env[3],
                 ..GbHit::default()
             });
         } else {
+            let (sound_len, sound_len_inf) = self.final_sound_len(voice);
             self.active[voice] = Some(GbHit {
                 sample_time: t,
                 voice,
@@ -609,7 +629,8 @@ impl GbState {
                 env_vol: start_vol,
                 env_dir: (self.env[voice] >> 3) & 1,
                 env_len: self.env[voice] & 7,
-                sound_len: self.final_sound_len(voice),
+                sound_len,
+                sound_len_inf,
                 pan: self.pan[voice],
                 sweep: if voice == 0 { self.sweep } else { 0 },
                 env_raw: self.env[voice],
@@ -974,18 +995,42 @@ pub fn collect_gb(
                 let right = (val >> v) & 1;
                 let new_pan = (if left != 0 { 0xF0 } else { 0 })
                     | (if right != 0 { 0x0F } else { 0 });
-                if new_pan != st.pan[v] {
-                    st.pan[v] = new_pan;
-                    if let Some(hit) = st.active[v].as_mut() {
-                        if t - hit.sample_time <= GB_ENV_REFIT {
-                            // The driver writes NR51 at (or just after) the
-                            // trigger; that is this note's pan, not a
-                            // mid-note move.
-                            hit.pan = new_pan;
-                        } else if hit.pan_pts.last().map(|p| p.1) != Some(new_pan) {
-                            hit.pan_pts.push((t, new_pan));
+                if new_pan == st.pan[v] {
+                    continue;
+                }
+                let was_muted = st.pan[v] == 0;
+                st.pan[v] = new_pan;
+                let wave_level = if v == 2 { wave_volume(st.wave_vol) } else { 0 };
+                let Some(hit) = st.active[v].as_mut() else {
+                    continue;
+                };
+                if new_pan == 0 {
+                    // NR51 with both sides off. Furnace's GB platform reads a
+                    // 08 00 effect as "both on" (it forces pan 0x11), so a pan
+                    // effect cannot gate a voice. Drivers use this write to cut
+                    // the wavetable voice, which has no envelope of its own:
+                    // express it as NR32 = 0 so the note stops where the source
+                    // does and resumes when NR51 comes back.
+                    if v == 2 && t > hit.sample_time {
+                        if hit.vol_pts.last().map(|p| p.1) != Some(0) {
+                            hit.vol_pts.push((t, 0));
                         }
                     }
+                    continue;
+                }
+                if was_muted && v == 2 && t > hit.sample_time {
+                    // NR51 came back: NR32 never changed while the output was
+                    // off, so restore the level it still holds.
+                    if hit.vol_pts.last().map(|p| p.1) != Some(wave_level) {
+                        hit.vol_pts.push((t, wave_level));
+                    }
+                }
+                if t - hit.sample_time <= GB_ENV_REFIT {
+                    // The driver writes NR51 at (or just after) the trigger;
+                    // that is this note's pan, not a mid-note move.
+                    hit.pan = new_pan;
+                } else if hit.pan_pts.last().map(|p| p.1) != Some(new_pan) {
+                    hit.pan_pts.push((t, new_pan));
                 }
             }
         } else if reg == REG_ON {

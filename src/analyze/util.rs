@@ -603,6 +603,7 @@ pub fn _plain_tone(spec: &ToneIns, tone_chip: i32) -> ToneIns {
             gb_env_dir: spec.gb_env_dir,
             gb_env_len: spec.gb_env_len,
             gb_sound_len: spec.gb_sound_len,
+            gb_sound_len_inf: spec.gb_sound_len_inf,
             ..ToneIns::default()
         };
     }
@@ -719,6 +720,7 @@ impl Hash for ToneIns {
         self.gb_env_dir.hash(state);
         self.gb_env_len.hash(state);
         self.gb_sound_len.hash(state);
+        self.gb_sound_len_inf.hash(state);
         self.gb_wave.hash(state);
         self.vsu_mod.hash(state);
         self.sample.hash(state);
@@ -819,6 +821,7 @@ pub fn _tone_close(a: &ToneIns, b: &ToneIns, tol: i32) -> bool {
         || a.gb_env_dir != b.gb_env_dir
         || a.gb_env_len != b.gb_env_len
         || a.gb_sound_len != b.gb_sound_len
+        || a.gb_sound_len_inf != b.gb_sound_len_inf
         || a.gb_wave != b.gb_wave
         || a.vsu_mod != b.vsu_mod
         || a.sample != b.sample
@@ -895,7 +898,7 @@ pub fn _take_tone(
 /// Everything about a tone instrument except its macro values.
 pub fn _tone_sig(spec: &ToneIns) -> String {
     format!(
-        "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+        "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
         spec.wave,
         spec.env_hw,
         spec.panl_delay,
@@ -906,6 +909,7 @@ pub fn _tone_sig(spec: &ToneIns) -> String {
         spec.gb_env_dir,
         spec.gb_env_len,
         spec.gb_sound_len,
+        spec.gb_sound_len_inf,
         spec.gb_wave,
         spec.vsu_mod,
         spec.sample,
@@ -1094,6 +1098,7 @@ pub fn _tone_vol_sig(spec: &ToneIns) -> String {
     add!(spec.gb_env_dir);
     add!(spec.gb_env_len);
     add!(spec.gb_sound_len);
+    add!(spec.gb_sound_len_inf);
     add!(spec.gb_wave);
     add!(spec.vsu_mod);
     add!(spec.sample);

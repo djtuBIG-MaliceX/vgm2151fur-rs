@@ -1094,22 +1094,23 @@ pub fn _write_ins_gb(b: &mut Buf, name: &str, ins: &ToneIns) {
     b.u8((((ins.gb_env_len & 7) << 5)
         | ((ins.gb_env_dir & 1) << 4)
         | (ins.gb_env_vol & 15)) as i64);
-    b.u8((ins.gb_sound_len & 0xFF) as i64);
-    let soft = ins.gb_soft_env;
-    let wave = ins.gb_wave;
-    b.u8(if soft { 1 } else { 0 });
-    if soft || wave {
-        b.u8(0); // no hardware envelope sequence
+    // `soundLen` is NRx1's encoding; `soundLenInfinite` (bit 3 of the flags
+    // byte) is what keeps the hardware length counter off. Without the flag
+    // Furnace sets NRx4 bit 6 and every note is cut once its length runs out.
+    let sound_len_inf = ins.gb_sound_len_inf;
+    let sound_len = if sound_len_inf {
+        255
     } else {
-        // The pattern volume column is the maximum, so the note starts at 15.
-        b.u8(1);
-        let env_data = ((ins.gb_sound_len & 0xFF) << 8)
-            | ((ins.gb_env_vol & 15) << 4)
-            | ((ins.gb_env_dir & 1) << 3)
-            | (ins.gb_env_len & 7);
-        b.u8(0); // DIV_GB_HWCMD_ENVELOPE
-        b.u16((env_data & 0xFFFF) as i64);
-    }
+        ins.gb_sound_len & 0xFF
+    };
+    b.u8(sound_len as i64);
+    let soft = ins.gb_soft_env;
+    b.u8(((if sound_len_inf { 8 } else { 0 }) | (if soft { 1 } else { 0 })) as i64);
+    // Furnace applies the DIV_INS_GB envelope fields at the note-on, so a
+    // hardware sequence holding the same values would only write NRx2 twice.
+    // The pattern leaves the volume column empty for these notes, so nothing
+    // overrides the start level and the sequence is not needed.
+    b.u8(0); // no hardware envelope sequence
     let n = b.len() - gb_start;
     patch_u16(b, gb_size, n as i32);
     if ins.gb_wave {

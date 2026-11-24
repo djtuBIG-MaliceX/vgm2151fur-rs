@@ -7349,7 +7349,7 @@ impl<'a> AnalyzeState<'a> {
                 on: true,
                 note,
                 ins: -1,
-                vol: if h.voice != 2 && !h.soft_env { 15 } else { h.vol },
+                vol: if h.voice != 2 && !h.soft_env { -1 } else { h.vol },
                 e5,
                 pan: h.pan,
                 end: h.off_sample,
@@ -7368,6 +7368,7 @@ impl<'a> AnalyzeState<'a> {
                 gb_env_dir: h.env_dir,
                 gb_env_len: h.env_len,
                 gb_sound_len: h.sound_len,
+                gb_sound_len_inf: h.sound_len_inf,
                 legato: h.legato,
                 ..NoteEvent::default()
             });

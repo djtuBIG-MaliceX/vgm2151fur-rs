@@ -2297,6 +2297,7 @@ pub fn _bind_tone_instruments(
             gb_env_dir: e.gb_env_dir,
             gb_env_len: e.gb_env_len,
             gb_sound_len: e.gb_sound_len,
+            gb_sound_len_inf: e.gb_sound_len_inf,
             gb_wave: e.tone_gb_wave,
             vsu_mod: e.tone_mod,
         };

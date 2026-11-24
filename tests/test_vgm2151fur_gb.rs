@@ -10,7 +10,10 @@ use std::path::PathBuf;
 use vgm2fur::analyze::{analyze, AnalyzeOptions};
 use vgm2fur::furio::{iter_blocks, parse_fur};
 use vgm2fur::furwrite::{write_fur, WriteOptions, CHIP_GB, INS_GB};
-use vgm2fur::gb::{collect_gb, gb_noise_note, gb_note, gb_period_delta, wave_nibbles};
+use vgm2fur::gb::{
+    collect_gb, gb_noise_note, gb_note, gb_period_delta, wave_nibbles,
+    GB_SOUND_LEN_INFINITE,
+};
 use vgm2fur::vgm::{load_vgm, ChipWrite, VgmFile};
 
 fn tmp_dir() -> PathBuf {
@@ -415,14 +418,17 @@ mod TestGbNotes {
     }
 
     #[test]
-    fn test_noise_length_disabled_uses_64() {
-        // Furnace enables the noise length counter when soundLen < 64, so a
-        // source note with length counting off must carry 64, not 63.
+    fn test_noise_length_disabled_is_infinite() {
+        // A source note that never enables the counter must carry the
+        // instrument's infinite flag; the value alone would start the
+        // hardware length counter and cut the note.
         let (hits, _o, _w, _warn) = collect_gb(&gb_vgm(noise(1000, 0xA1, 0x16)), None);
-        assert_eq!(hits[0].sound_len, 64);
+        assert_eq!(hits[0].sound_len, GB_SOUND_LEN_INFINITE);
+        assert!(hits[0].sound_len_inf);
         let (hits, _o, _w, _warn) =
             collect_gb(&gb_vgm(noise_note(1000, 0xA1, 0x16, 36, true)), None);
         assert_eq!(hits[0].sound_len, 63 - 36);
+        assert!(!hits[0].sound_len_inf);
     }
 
     #[test]
@@ -614,10 +620,11 @@ mod TestGbWave {
     }
 
     #[test]
-    fn test_hardware_envelope_column_is_max_with_hwseq() {
-        // The pattern column is the ceiling (15); the instrument's hardware
-        // sequence restores the source's initial envelope so the note is not
-        // raised to full level.
+    fn test_hardware_envelope_needs_no_hwseq() {
+        // Furnace applies the instrument's NRx2 fields at the note-on, so the
+        // note carries no volume column (which would overwrite the start
+        // level) and the instrument needs no hardware sequence: the sequence
+        // could only write the same envelope a second time.
         let writes = noise(1000, 0x21, 0x16);
         let song = analyze(&gb_vgm(writes), AnalyzeOptions::default()).expect("analyze");
         let ev = song
@@ -625,7 +632,7 @@ mod TestGbWave {
             .iter()
             .find(|e| e.tone_chip == 6 && e.on && !e.tone_gb_wave && !e.gb_soft_env)
             .expect("gb event");
-        assert_eq!(ev.vol, 15);
+        assert_eq!(ev.vol, -1);
         let data = write_song(&song);
         let features: Vec<&[u8]> = iter_blocks(&data)
             .expect("blocks")
@@ -657,11 +664,85 @@ mod TestGbWave {
             }
         }
         let found = found.expect("GB feature");
-        assert_eq!(found[3], 1); // one hardware-sequence entry
-        let cmd = found[4];
-        let value = u16le(found, 5);
-        assert_eq!(cmd, 0); // DIV_GB_HWCMD_ENVELOPE
-        assert_eq!(value, (64u16 << 8) | (2 << 4) | (0 << 3) | 1);
+        assert_eq!(found[0] & 15, 2); // source start volume
+        assert_eq!(found[0] >> 5, 1); // envelope period
+        assert_eq!(found[3], 0); // no hardware-sequence entry
+        assert_eq!(found[2] & 8, 8); // soundLenInfinite
+        assert_eq!(found[1], 255);
+    }
+
+    #[test]
+    fn test_nr51_mute_gates_the_wave_with_nr32() {
+        // The Pokemon drivers gate the wave voice by clearing its NR51 bits.
+        // Furnace reads a 08 00 effect as "both on", so the gate must become
+        // an NR32 level change instead: 0 while muted, the register's level
+        // back when NR51 returns.
+        let img = img_10_20();
+        let mut writes = wave_cmds(0, &img);
+        writes.extend([
+            gb(1000, 0x0A, 0x80), // wave DAC on
+            gb(1000, 0x0C, 0x20), // 100%
+            gb(1000, 0x0D, 0x00),
+            gb(1000, 0x0E, 0x86), // trigger
+            gb(1000, 0x15, 0xFF), // every voice both sides
+            gb(5000, 0x15, 0xBB), // wave off, everyone else stays
+            gb(9000, 0x15, 0xFF), // wave back
+        ]);
+        let (hits, _o, _w, _warn) = collect_gb(&gb_vgm(writes), None);
+        let wave: Vec<_> = hits.iter().filter(|h| h.voice == 2).collect();
+        assert_eq!(wave.len(), 1);
+        assert_eq!(wave[0].vol_pts, vec![(5000, 0), (9000, 15)]);
+        assert_eq!(wave[0].pan, 0xFF);
+        assert!(!wave[0].pan_pts.iter().any(|p| p.1 == 0));
+
+        let writes = {
+            let mut w = wave_cmds(0, &img);
+            w.extend([
+                gb(1000, 0x0A, 0x80),
+                gb(1000, 0x0C, 0x20),
+                gb(1000, 0x0D, 0x00),
+                gb(1000, 0x0E, 0x86),
+                gb(1000, 0x15, 0xFF),
+                gb(5000, 0x15, 0xBB),
+                gb(9000, 0x15, 0xFF),
+            ]);
+            w
+        };
+        let song = analyze(&gb_vgm(writes), AnalyzeOptions::default()).expect("analyze");
+        let mod_ = parse_fur(&write_song(&song)).expect("parse");
+        let cells = mod_.patterns.get(&(2, 0)).expect("wave pattern");
+        assert!(
+            cells.iter().any(|r| r.vol == 0),
+            "the gate must write NR32 = 0"
+        );
+        assert!(
+            !cells
+                .iter()
+                .any(|r| r.fx.iter().any(|&(c, v)| c == 0x08 && v == 0)),
+            "08 00 is 'both on' on the GB platform"
+        );
+    }
+
+    #[test]
+    fn test_wave_trigger_while_nr51_muted_starts_silent() {
+        // A wave note triggered while NR51 gates the voice must start at
+        // level 0 and come back when the output is restored.
+        let img = img_10_20();
+        let mut writes = wave_cmds(0, &img);
+        writes.extend([
+            gb(0, 0x15, 0x00), // every voice off
+            gb(1000, 0x0A, 0x80),
+            gb(1000, 0x0C, 0x20), // 100%
+            gb(1000, 0x0D, 0x00),
+            gb(1000, 0x0E, 0x86),
+            gb(5000, 0x15, 0xFF),
+        ]);
+        let (hits, _o, _w, _warn) = collect_gb(&gb_vgm(writes), None);
+        let wave: Vec<_> = hits.iter().filter(|h| h.voice == 2).collect();
+        assert_eq!(wave.len(), 1);
+        assert_eq!(wave[0].vol, 0);
+        assert_eq!(wave[0].pan, 0xFF);
+        assert_eq!(wave[0].vol_pts, vec![(5000, 15)]);
     }
 
     #[test]
@@ -684,7 +765,8 @@ mod TestGbWave {
         assert_eq!(hits[0].wave, 0);
         assert_eq!(hits[0].wave_pts, vec![(3000, 1)]);
         assert_eq!(hits[0].vol, 15);
-        assert_eq!(hits[0].sound_len, 63);
+        assert_eq!(hits[0].sound_len, GB_SOUND_LEN_INFINITE);
+        assert!(hits[0].sound_len_inf);
     }
 }
 
@@ -724,6 +806,34 @@ mod TestGbModule {
         assert!(types.contains(&(INS_GB as u16)));
         // The GB chip flag picks the CGB-E core.
         assert!(contains_bytes(&data, b"chipType=2"));
+    }
+
+    #[test]
+    fn test_finite_length_writes_the_counter() {
+        // A source that does enable length counting keeps it: the instrument
+        // clears soundLenInfinite and stores NRx1's encoding, so Furnace
+        // writes NRx4 bit 6 with the same length the driver asked for.
+        let writes = noise_note(1000, 0xA1, 0x16, 36, true);
+        let song = analyze(&gb_vgm(writes), AnalyzeOptions::default()).expect("analyze");
+        let data = write_song(&song);
+        let mut found: Option<&[u8]> = None;
+        for blk in iter_blocks(&data).expect("blocks") {
+            if blk.magic != *b"INS2" {
+                continue;
+            }
+            if let Some(i) = blk
+                .payload
+                .windows(4)
+                .position(|w| w == b"GB\x04\x00")
+            {
+                found = Some(&blk.payload[i + 4..i + 8]);
+                break;
+            }
+        }
+        let found = found.expect("GB feature");
+        assert_eq!(found[1], 63 - 36); // NRx1 low bits = 36
+        assert_eq!(found[2] & 8, 0); // length counter enabled
+        assert_eq!(found[3], 0); // still no hardware sequence
     }
 
     #[test]
